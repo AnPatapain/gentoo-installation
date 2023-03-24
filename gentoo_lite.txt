@@ -1,0 +1,311 @@
+>>cfdisk /dev/sda 
+-> DOS
+
+ 	/dev/sda1: new -> primary -> 600M -> boot flag
+      /dev/sda2: new -> primary  -> 18G 
+      /dev/sda3: new -> 1.5G -> 82 linux swap / solaris
+	
+	/dev/sda4: extended 4G
+      --> /dev/sda5: new -> 2G
+      --> /dev/sda6: new -> 2G
+
+
+>>fdisk -l
+
+>> mke2fs /dev/sda1 && mke2fs -j /dev/sda2
+>> mkswap /dev/sda3 && swapon /dev/sda3
+>> mount /dev/sda2 /mnt/gentoo
+>> mkdir /mnt/gentoo/boot
+>> mount /dev/sda1 /mnt/gentoo/boot
+>> cd /mnt/gentoo
+
+>>scp .\stage3-amd64-openrc-20221106T170545Z.tar.xz root@<ip>:/mnt/gentoo
+
+>>tar -xvf stage3...
+>> cd /
+>> mount -t proc none /mnt/gentoo/proc && mount -o bind /dev /mnt/gentoo/dev
+>> cp -L /etc/resolv.conf /mnt/gentoo/etc/
+>> chroot /mnt/gentoo /bin/bash 
+>> env-update && source /etc/profile
+
+>> nano -w /etc/hosts
+127.0.0.1   NGUYEN_Ke_An.fr localhost
+>> nano -w /etc/conf.d/hostname
+hostname="NGUYEN_Ke_An.fr"
+>> hostname NGUYEN_Ke_An.fr
+>> hostname -f
+
+>> nano -w /etc/fstab
+/dev/sda1               /boot           ext2            noauto,noatime  1 2
+/dev/sda2               /               ext3            noatime         0 1
+/dev/sda3               none            swap            sw              0 0
+
+>> nano -w /etc/conf.d/keymaps put KEYMAP='fr'
+
+     scp .\portage-latest.tar.bz2 root@<ip>:/mnt/gentoo/usr/
+
+>> cd /usr
+>> tar -xvf portage-...
+>> env-update
+>> ln -s /usr/portage /var/db/repos/gentoo
+>> env-update
+
+ 	scp .\distfiles.tar.bz2 root@192.168.206.134:/mnt/gentoo/var/cache
+>> cd /var/cache
+>> tar -xvf distfiles.tar.bz2
+ 	scp .\packages.tar.bz2 root@192.168.206.134:/mnt/gentoo/var/cache
+>> tar -xvf packages.tar.bz2
+
+>> emerge -K gentoo-kernel-bin
+>> emerge -K dhcpcd
+>> emerge -K grub:2
+>> grub-install /dev/sda
+>> grub-mkconfig -o /boot/grub/grub.cfg
+
+>>passwd
+Azerty0$@
+
+>> nano -w /etc/ssh/sshd_config
+         PermitRootLogin yes
+>> rc-update add sshd default
+>> /etc/init.d/sshd restart
+
+>> exit
+>> umount /mnt/gentoo/proc /mnt/gentoo/boot /mnt/gentoo/dev /mnt/gentoo
+>> reboot
+
+power off -> edit machine -> cd -> choose physical disk auto detect
+
+>> useradd -m -G users,wheel exam1
+>> id exam1
+>> passwd exam1
+>> /etc/init.d/sshd restart
+
+
+>> emerge -K syslog-ng
+>> emerge -K cronie
+>> rc-update add cronie default && rc-update add syslog-ng default
+
+>> nano -w /etc/syslog-ng/syslog-ng.conf
+
+destination loginLog { file("/var/log/login.log"); };                              
+filter f_login { facility(auth); };                             
+log { source(src); filter(f_login); destination(loginLog); }; 
+
+>> cd /home 
+>> mkdir toto
+>> mkdir toto/data
+>> mkdir /mnt/backup
+>> nano /etc/cron.d/backup.sh
+
+#!/bin/bash
+/bin/tar czf /mnt/backup/data.tar.gz /home/toto/data
+
+>> nano /etc/cron.d/backup
+
+20 15 * * * root /etc/cron.d/backup.sh
+
+
+>> chmod 755 /etc/cron.d/backup.sh
+>> /etc/init.d/cronie restart
+
+>> emerge -K apache
+>> rc-update add apache2 default
+
+>>cd /etc/ssl
+>>openssl req -newkey rsa:4096 \
+            -x509 \
+            -sha256 \
+            -days 3650 \
+            -nodes \
+            -out example.crt \
+            -keyout example.key
+
+>> nano -w /etc/apache2/vhosts.d/00_default_ssl_vhost.conf
+
+SSLCertificateFile /etc/ssl/example.crt
+
+SSLCertificateKeyFile /etc/ssl/example.key 
+
+>> /etc/init.d/apache2 start
+
+>> emerge -K proftpd
+>> rc-update add proftpd default
+>> cat /etc/proftpd/proftpd.conf.sample
+>> cp /etc/proftpd/proftpd.conf.sample /etc/proftpd/proftpd.conf
+>> /etc/init.d/proftpd start
+>> reboot
+
+TEST: var/log/login
+                >> cat /var/log/login.log
+
+TEST:   cronie ls /mnt/backup
+                 on my Pc:
+                 +++++++++++++++++++++++++++++++++
+                 + NGUYEN_Ke_An /mnt/backup # ls +
+                 + data.tar.gz                   +
+                 +++++++++++++++++++++++++++++++++
+>> /etc/init.d/cronie status
+>> /etc/init.d/apache2 status
+>> /etc/init.d/proftpd status
+
+RAID LVM
+
+>> emerge sys-fs/mdadm
+#IMPORTANT NOTE: You will probably must wait for 5 6 mins for this command.
+#If it's suck (connection try out). using the guide bellow
+++++++++++++++++++++++++++++++++++++++++++++++
+if it's suck. Reboot using cdrom:
+>> reboot 
+>> modprobe raid1
+>> emerge sys-fs/mdadm
++++++++++++++++++++++++++++++++++++++++++++++++							   
+>> modprobe dm-mod
+>> emerge -K lvm2
+
+>> mdadm --create /dev/md0 --level=1 --raid-devices=2 /dev/sda5 /dev/sda6
+
+>> pvcreate /dev/md0
+
+>> vgcreate VG1 /dev/md0
+
+>> lvcreate -L 0.9G -n backup VG1 && lvcreate -L 0.9G -n data VG1
+>> mkfs.ext3 /dev/VG1/backup && mkfs.ext3 /dev/VG1/data
+
+>> mkdir /backup && mkdir /data
+>> mount /dev/VG1/backup /backup
+>> mount /dev/VG1/data /data
+
+>> rc-update add mdadm boot 
+>> nano -w /etc/fstab
+/dev/VG1/backup         /backup         ext3            defaults        0 0
+/dev/VG1/data           /data           ext3            defaults        0 0
+
+Final:
+        >> cd /root
+        >> touch evaluation.sh
+        	scp .\evaluation.sh root@<ip>:/root
+        >> chmod 777 evaluation.sh
+        >> ./evaluation.sh
+	     scp root@192.168.206.135:/tmp/evaluation.tar.bz2 .
+
+___________________________________THE END__________________________________
+
+Some funny stuffs:
+	rotate the login.log:
+		>> cd /etc/logrotate.d
+		>> nano auth-message-rotate
+		/var/log/login.log {
+			daily
+        		rotate 7
+        		compress
+        		delaycompress
+        		missingok
+		}
+		in /etc/logrotate.conf there is a directive: "include /etc/logrotate.d" 		so all files in /etc/logrotate.d will be executed automatically
+
+		>> logrotate -f /etc/logrotate.conf
+		
+	Archive /etc to /var/backup as etc-DATE.zip every night
+	>> mkdir /var/backup
+	>> emerge zip
+	>> nano -w /etc/cron.daily/etc-backup
+	#!/bin/bash
+
+	BACKUP_DIR="/var/backup"
+
+	DATE=$(date +%d-%m-%Y)
+
+	cd / && zip -r "$BACKUP_DIR/etc-$DATE.zip" etc
+	>> chmod +x /etc/cron.daily/etc-backup
+
+@version: 3.17        #mandatory since Version 3, specify the version number of the used syslog-ng
+     
+options {
+        chain_hostnames(no);
+
+        # The default action of syslog-ng is to log a STATS line
+        # to the file every 10 minutes.  That's pretty ugly after a while.
+        # Change it to every 12 hours for a nice daily update of
+        # how many messages syslog-ng missed (0).
+        stats_freq(43200);
+};
+
+source src {
+    unix-stream("/dev/log" max-connections(256));
+    internal();
+};
+
+source kernsrc { file("/proc/kmsg"); };
+
+# define destinations
+destination authlog { file("/var/log/auth.log"); };
+destination syslog { file("/var/log/syslog"); };
+destination cron { file("/var/log/cron.log"); };
+destination daemon { file("/var/log/daemon.log"); };
+destination kern { file("/var/log/kern.log"); };
+destination lpr { file("/var/log/lpr.log"); };
+destination user { file("/var/log/user.log"); };
+destination mail { file("/var/log/mail.log"); };
+
+destination mailinfo { file("/var/log/mail.info"); };
+destination mailwarn { file("/var/log/mail.warn"); };
+destination mailerr { file("/var/log/mail.err"); };
+
+destination newscrit { file("/var/log/news/news.crit"); };
+destination newserr { file("/var/log/news/news.err"); };
+destination newsnotice { file("/var/log/news/news.notice"); };
+
+destination debug { file("/var/log/debug"); };
+destination messages { file("/var/log/messages"); };
+destination console { usertty("root"); };
+
+# By default messages are logged to tty12...
+destination console_all { file("/dev/tty12"); };
+
+# ...if you intend to use /dev/console for programs like xconsole
+# you can comment out the destination line above that references /dev/tty12
+# and uncomment the line below.
+#destination console_all { file("/dev/console"); };
+
+# create filters
+filter f_authpriv { facility(auth, authpriv); };
+filter f_syslog { not facility(authpriv, mail); };
+filter f_cron { facility(cron); };
+filter f_daemon { facility(daemon); };
+filter f_kern { facility(kern); };
+filter f_lpr { facility(lpr); };
+filter f_mail { facility(mail); };
+filter f_user { facility(user); };
+filter f_debug { not facility(auth, authpriv, news, mail); };
+filter f_messages { level(info..warn)
+        and not facility(auth, authpriv, mail, news); };
+filter f_emergency { level(emerg); };
+
+filter f_info { level(info); };
+filter f_notice { level(notice); };
+filter f_warn { level(warn); };
+filter f_crit { level(crit); };
+filter f_err { level(err); };
+filter f_failed { message("failed"); };
+filter f_denied { message("denied"); };
+
+# connect filter and destination
+log { source(src); filter(f_authpriv); destination(authlog); };
+log { source(src); filter(f_syslog); destination(syslog); };
+log { source(src); filter(f_cron); destination(cron); };
+log { source(src); filter(f_daemon); destination(daemon); };
+log { source(kernsrc); filter(f_kern); destination(kern); };
+log { source(src); filter(f_lpr); destination(lpr); };
+log { source(src); filter(f_mail); destination(mail); };
+log { source(src); filter(f_user); destination(user); };
+log { source(src); filter(f_mail); filter(f_info); destination(mailinfo); };
+log { source(src); filter(f_mail); filter(f_warn); destination(mailwarn); };
+log { source(src); filter(f_mail); filter(f_err); destination(mailerr); };
+
+log { source(src); filter(f_debug); destination(debug); };
+log { source(src); filter(f_messages); destination(messages); };
+log { source(src); filter(f_emergency); destination(console); };
+
+# default log
+log { source(src); destination(console_all); };
